@@ -1,0 +1,119 @@
+#
+# sdkconfig.defaults for Matter over Thread LEADER Mode on ESP32-C6
+#
+# Cấu hình này biến ESP32-C6 thành Thread Leader (Border Router)
+# ESP32-C6 sẽ TẠO Thread network thay vì join vào network có sẵn
+#
+
+# ============================================================
+# IEEE 802.15.4 / Thread Configuration - LEADER Mode
+# ============================================================
+CONFIG_IEEE802154_ENABLED=y
+CONFIG_IEEE802154_RX_BUFFER_SIZE=20
+CONFIG_IEEE802154_CCA_ED=y
+CONFIG_IEEE802154_CCA_MODE=1
+CONFIG_IEEE802154_CCA_THRESHOLD=-75
+CONFIG_IEEE802154_INTERFACE_NUM=1
+
+# ============================================================
+# Thread Leader / Border Router Configuration
+# ============================================================
+# Enable Thread network interface as Leader
+CONFIG_ESP_THREAD_NETWORK_INTERFACE=y
+CONFIG_ESP_THREAD_DATASET_MGMT_SELF=y
+
+# Enable ESP-Thread-BR (Border Router) functionality
+CONFIG_ESP_THREAD_BR=y
+CONFIG_ESP_THREAD_BR_NATIVE=y
+
+# Thread Leader settings - ESP32-C6 will CREATE the Thread network
+CONFIG_OPENTHREAD_ENABLED=y
+CONFIG_OPENTHREAD_LEADER=y
+CONFIG_OPENTHREAD_ROLE_LEADER=y
+
+# Thread PAN ID (Network identifier)
+CONFIG_OPENTHREAD_PAN_ID=0xABCD
+
+# Thread Channel Mask (channels 11, 12, 13 for 2.4GHz)
+CONFIG_OPENTHREAD_CHANNEL=15
+CONFIG_OPENTHREAD_CHANNEL_MASK=0x07F80000
+
+# Thread Master Key (auto-generated, change for security)
+# Use: openssl rand -hex 16
+CONFIG_OPENTHREAD_MASTER_KEY="00112233445566778899aabbccddeeff"
+
+# Thread Network Name
+CONFIG_OPENTHREAD_NETWORK_NAME="ESP32-C6-FAN"
+
+# Thread Router ID preference for Leader
+CONFIG_OPENTHREAD_ROUTER_ID=0x00
+
+# ============================================================
+# Border Router Features
+# ============================================================
+# Enable DHCP server for Thread network
+CONFIG_ESP_THREAD_BR_DHCP_SERVER=y
+
+# Enable DNS forwarder
+CONFIG_ESP_THREAD_BR_DNS_FORWARDER=y
+
+# Enable NAT64 (for IPv6 to IPv4 translation)
+CONFIG_ESP_THREAD_BR_NATIVE_NAT64=y
+
+# ============================================================
+# Matter Configuration
+# ============================================================
+CONFIG_ESP_MATTER_REPORTING=y
+CONFIG_ESP_MATTER_THREAD_ENABLED=y
+
+# Matter commissioning methods
+CONFIG_ESP_MATTER_DEVICE_CATEGORY_PERIPHERAL=y
+CONFIG_ESP_MATTER_PAIRING_METHOD_QR=y
+CONFIG_ESP_MATTER_PAIRING_METHOD_DISCERNER=4
+
+# ============================================================
+# OpenThread Commissioning
+# ============================================================
+# Set device discriminator and spinner for Thread commissioning
+CONFIG_OPENTHREAD_DISCRIMINATOR=0x1234
+CONFIG_OPENTHREAD_SPINNER=0
+
+# ============================================================
+# Disable WiFi (not used in Thread-only mode)
+# ============================================================
+CONFIG_ESP_WIFI_ENABLED=n
+CONFIG_ESP_WIFI_MBEDTLS_CRYPTO=n
+CONFIG_ESP_WIFI_MBEDTLS_TLS_CLIENT=n
+
+# ============================================================
+# Bluetooth (disable - not used for Thread commissioning)
+# ============================================================
+CONFIG_BT_ENABLED=n
+CONFIG_BT_BLUEDENIM_ENABLED=n
+CONFIG_BT_NIMBLE_ENABLED=n
+
+# ============================================================
+# LWIP (for Matter IP stack)
+# ============================================================
+CONFIG_LWIP_IPV6=y
+CONFIG_LWIP_IPV6_AUTOCONFIG=y
+CONFIG_LWIP_DNS_SUPPORT_MDNS_QUERIES=y
+
+# ============================================================
+# Log Configuration
+# ============================================================
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_MAXIMUM_LEVEL=3
+CONFIG_LOG_CONSOLE_LEVEL_INFO
+
+# ============================================================
+# Partition Table
+# ============================================================
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# ============================================================
+# Secure Boot / Flash Encryption
+# ============================================================
+CONFIG_SECURE_BOOT=n
+CONFIG_FLASH_ENCRYPTION_ENABLED=n

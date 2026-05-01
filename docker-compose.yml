@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  # Build service - biên dịch firmware
+  build:
+    build: .
+    volumes:
+      - .:/project
+    working_dir: /project
+    command: idf.py build
+
+  # Flash service - ghi firmware vào ESP32 qua cổng serial
+  flash:
+    build: .
+    volumes:
+      - .:/project
+    working_dir: /project
+    # Ánh xạ cổng COM3 từ Windows vào container
+    devices:
+      - COM3:/dev/ttyS0
+    command: idf.py -p /dev/ttyS0 flash
+
+  # Monitor service - xem log serial từ ESP32
+  monitor:
+    build: .
+    volumes:
+      - .:/project
+    working_dir: /project
+    devices:
+      - COM3:/dev/ttyS0
+    stdin_open: true
+    tty: true
+    command: idf.py -p /dev/ttyS0 monitor
+
+  # Clean service - xóa build cache
+  clean:
+    build: .
+    volumes:
+      - .:/project
+    working_dir: /project
+    command: idf.py clean
+
+  # Fullflash service - build và flash liên tục
+  fullflash:
+    build: .
+    volumes:
+      - .:/project
+    working_dir: /project
+    devices:
+      - COM3:/dev/ttyS0
+    command: idf.py -p /dev/ttyS0 build flash

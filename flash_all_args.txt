@@ -1,0 +1,4 @@
+--flash_mode dio --flash_freq 80m --flash_size 2MB
+0x0 build\bootloader\bootloader.bin
+0x8000 build\partition_table\partition-table.bin
+0x10000 build\esp32_c6_matter_fan.bin

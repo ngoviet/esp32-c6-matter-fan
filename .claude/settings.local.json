@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(where python *)",
+      "WebFetch(domain:deepwiki.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:docs.espressif.com)",
+      "Bash(docker --version)",
+      "Bash(docker info *)"
+    ]
+  }
+}
