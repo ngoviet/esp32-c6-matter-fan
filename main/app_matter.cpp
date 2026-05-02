@@ -2,9 +2,9 @@
  * @file app_matter.cpp
  * @brief Matter over Thread — Dimmable Light endpoint for fan CLK speed control
  *
- * Device appears as a dimmable light with 0-100% brightness.
- * Brightness maps to CLK frequency 100-400Hz (50% fixed duty).
- * Matches ESPHome logic from main.yaml: freq = 100 + (pct * 300) / 100
+ * Device appears as a dimmable light with 0-100% brightness slider.
+ * Brightness % maps to CLK frequency 28-328Hz via: freq = 28 + (pct * 300) / 100
+ * 50% fixed duty cycle on GPIO1.
  */
 #include "app_matter.h"
 #include <esp_log.h>
@@ -101,7 +101,6 @@ esp_err_t app_matter_init(FanController* fan_controller)
     if (!node) { ESP_LOGE(TAG, "Node create failed"); return ESP_FAIL; }
 
     // Set device name (appears as NodeLabel in HA)
-    uint16_t root_ep_id = 0;
     esp_matter_attr_val_t name_val = esp_matter_invalid(NULL);
     name_val.type = ESP_MATTER_VAL_TYPE_CHAR_STRING;
     name_val.val.a.b = (uint8_t*)"Fan speed control";
@@ -151,7 +150,10 @@ esp_err_t app_matter_init(FanController* fan_controller)
 void app_matter_report_onoff(bool is_on)
 {
     if (s_endpoint_id == 0) return;
+    attribute_t *attr = attribute::get(s_endpoint_id, CLUSTER_ON_OFF, ATTR_ON_OFF);
+    if (!attr) return;
     esp_matter_attr_val_t val = esp_matter_invalid(NULL);
+    attribute::get_val(attr, &val);
     val.val.b = is_on;
     attribute::update(s_endpoint_id, CLUSTER_ON_OFF, ATTR_ON_OFF, &val);
 }
@@ -159,9 +161,11 @@ void app_matter_report_onoff(bool is_on)
 void app_matter_report_speed(uint8_t percentage)
 {
     if (s_endpoint_id == 0) return;
-    // Report speed as brightness level (0-100% -> 0-254)
     uint8_t level = (percentage * 254 + 50) / 100;
+    attribute_t *attr = attribute::get(s_endpoint_id, CLUSTER_LEVEL_CONTROL, ATTR_CURRENT_LEVEL);
+    if (!attr) return;
     esp_matter_attr_val_t val = esp_matter_invalid(NULL);
+    attribute::get_val(attr, &val);
     val.val.u8 = level;
     attribute::update(s_endpoint_id, CLUSTER_LEVEL_CONTROL, ATTR_CURRENT_LEVEL, &val);
 }

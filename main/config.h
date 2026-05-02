@@ -15,8 +15,8 @@ static constexpr gpio_num_t PIN_ENCODER_SW   = GPIO_NUM_4;
 
 // ========== FAN PARAMETERS ==========
 // Frequency range (Hz)
-static constexpr uint32_t FAN_MIN_FREQ = 20;   // Minimum startup (tested: 17Hz)
-static constexpr uint32_t FAN_MAX_FREQ = 350;  // Maximum practical speed
+static constexpr uint32_t FAN_MIN_FREQ = 28;   // 1% = 31Hz (startup min)
+static constexpr uint32_t FAN_MAX_FREQ = 328;  // 100% = 328Hz, +3Hz per %
 
 // LEDC Configuration
 static constexpr ledc_timer_t FAN_LEDC_TIMER = LEDC_TIMER_0;
@@ -25,19 +25,19 @@ static constexpr ledc_channel_t FAN_LEDC_CHAN = LEDC_CHANNEL_0;
 static constexpr ledc_timer_bit_t FAN_DUTY_RES = LEDC_TIMER_13_BIT;
 
 // ========== ENCODER SETTINGS ==========
-// 1 step = ~3% speed change (based on 33 steps for 100%)
-static constexpr int ENCODER_MAX_STEPS = 33;
+// 100 steps = 100% — 1 click = 1% (perfect sync with HA slider)
+static constexpr int ENCODER_MAX_STEPS = 100;
 
-// Bidirectional mapping: encoder step (0–33) ↔ Matter percent (0–100)
-// Integer math with rounding — faster and more precise than float on MCU
+// Bidirectional mapping: encoder step (0–100) ↔ Matter percent (0–100)
+// 1:1 mapping — no conversion needed
 static inline uint8_t step_to_percent(int step) {
-    int pct = (step * 100 + ENCODER_MAX_STEPS / 2) / ENCODER_MAX_STEPS;
-    return static_cast<uint8_t>(pct > 100 ? 100 : (pct < 0 ? 0 : pct));
+    if (step < 0) return 0;
+    if (step > 100) return 100;
+    return static_cast<uint8_t>(step);
 }
 
 static inline int percent_to_step(uint8_t percent) {
-    int step = (static_cast<int>(percent) * ENCODER_MAX_STEPS + 50) / 100;
-    return (step > ENCODER_MAX_STEPS ? ENCODER_MAX_STEPS : (step < 0 ? 0 : step));
+    return (percent > 100) ? 100 : percent;
 }
 
 // Matter Level Control cluster uses 0–254 range → map to 0–100%

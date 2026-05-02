@@ -9,3 +9,5 @@ esptool.zip
 esptool_bin/
 dependencies.lock
 gn/
+build_output.log
+*.log
