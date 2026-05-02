@@ -1,5 +1,7 @@
-# ESP-IDF Partition Table for 2MB Flash (ESP32-C6 Matter)
+# ESP-IDF Partition Table for 8MB Flash with OTA (ESP32-C6 Matter)
 # Name,   Type, SubType, Offset,   Size,   Flags
 nvs,      data, nvs,     0x9000,   24K,
 phy_init, data, phy,     0xf000,   4K,
-factory,  app,  factory, 0x10000,  1920K,
+otadata,  data, ota,     0x10000,  8K,
+ota_0,    app,  ota_0,   0x20000,  3900K,
+ota_1,    app,  ota_1,           ,3900K,

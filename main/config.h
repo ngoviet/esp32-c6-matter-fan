@@ -15,8 +15,8 @@ static constexpr gpio_num_t PIN_ENCODER_SW   = GPIO_NUM_4;
 
 // ========== FAN PARAMETERS ==========
 // Frequency range (Hz)
-static constexpr uint32_t FAN_MIN_FREQ = 100;
-static constexpr uint32_t FAN_MAX_FREQ = 400;
+static constexpr uint32_t FAN_MIN_FREQ = 20;   // Minimum startup (tested: 17Hz)
+static constexpr uint32_t FAN_MAX_FREQ = 350;  // Maximum practical speed
 
 // LEDC Configuration
 static constexpr ledc_timer_t FAN_LEDC_TIMER = LEDC_TIMER_0;
