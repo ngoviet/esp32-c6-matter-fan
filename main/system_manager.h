@@ -41,6 +41,9 @@ public:
     esp_err_t init() {
         printf("I (xxx) SYSTEM: Initializing system...\n");
 
+        // 0. Set instance BEFORE ISR can fire (prevents nullptr crash)
+        s_instance = this;
+
         // 1. Tạo Queue để nhận sự kiện từ ISR
         m_event_queue = xQueueCreate(10, sizeof(EventMessage));
         if (m_event_queue == nullptr) return ESP_FAIL;
@@ -70,7 +73,6 @@ public:
         if (m_button->init() != ESP_OK) return ESP_FAIL;
 
         // 5. Tạo Task xử lý sự kiện chính
-        s_instance = this;
         xTaskCreate(event_task_wrapper, "system_event_task", 4096, this, 10, &m_task_handle);
 
         // 6. Register callback so Matter can sync encoder step on remote writes

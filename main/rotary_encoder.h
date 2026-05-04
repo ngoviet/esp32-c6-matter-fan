@@ -1,57 +1,57 @@
+/**
+ * @brief Rotary Encoder EC11 — GPIO ISR with state-machine debounce
+ *
+ * Uses a 4-state quadrature decoder to reject noise and ensure only valid
+ * transitions are counted. Each detent = 4 state changes = ±1 step.
+ * GPIO pull-ups must be enabled in hardware.
+ *
+ * Hardware fix for noisy encoders: add 100nF capacitor between CLK→GND
+ * and DT→GND (RC low-pass filter with internal 45kΩ pull-up).
+ */
 #ifndef ROTARY_ENCODER_H
 #define ROTARY_ENCODER_H
 
 #include <stdio.h>
 #include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "config.h"
 
-/**
- * @brief Lớp điều khiển Rotary Encoder sử dụng ngắt (Interrupt) để đọc tín hiệu CLK và DT.
- * 
- * Design: Callback được gọi từ ISR nhưng chỉ thực hiện thao tác nhanh.
- * Logic xử lý nặng nên được thực hiện trong task context.
- */
 class RotaryEncoder {
 public:
-    // Callback function type - chỉ dùng cho thao tác nhanh trong ISR
     typedef void (*on_change_callback)(int new_value);
 
-    RotaryEncoder(on_change_callback callback) 
-        : m_callback(callback), m_current_step(0), m_last_clk_state(false) {}
+    RotaryEncoder(on_change_callback callback)
+        : m_callback(callback), m_current_step(0), m_last_state(0), m_accumulator(0) {}
 
-    /**
-     * @brief Khởi tạo các chân GPIO cho Encoder
-     * @return esp_err_t ESP_OK nếu thành công
-     */
     esp_err_t init() {
-        // 1. Cấu hình chân CLK (Interrupt pin)
-        gpio_config_t io_conf = {};
-        io_conf.intr_type = GPIO_INTR_ANYEDGE; // Ngắt khi có bất kỳ sự thay đổi trạng thái nào
-        io_conf.mode = GPIO_MODE_INPUT;
-        io_conf.pin_bit_mask = (1ULL << PIN_ENCODER_CLK);
-        io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
-        esp_err_t ret = gpio_config(&io_conf);
+        // Configure CLK pin with interrupt
+        gpio_config_t clk_cfg = {};
+        clk_cfg.intr_type    = GPIO_INTR_ANYEDGE;
+        clk_cfg.mode         = GPIO_MODE_INPUT;
+        clk_cfg.pin_bit_mask = (1ULL << PIN_ENCODER_CLK);
+        clk_cfg.pull_up_en   = GPIO_PULLUP_ENABLE;
+        esp_err_t ret = gpio_config(&clk_cfg);
         if (ret != ESP_OK) return ret;
 
-        // 2. Cấu hình chân DT
-        io_conf.intr_type = GPIO_INTR_DISABLE;
-        io_conf.pin_bit_mask = (1ULL << PIN_ENCODER_DT);
-        io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
-        ret = gpio_config(&io_conf);
+        // Configure DT pin (no interrupt, just read)
+        gpio_config_t dt_cfg = {};
+        dt_cfg.intr_type    = GPIO_INTR_DISABLE;
+        dt_cfg.mode         = GPIO_MODE_INPUT;
+        dt_cfg.pin_bit_mask = (1ULL << PIN_ENCODER_DT);
+        dt_cfg.pull_up_en   = GPIO_PULLUP_ENABLE;
+        ret = gpio_config(&dt_cfg);
         if (ret != ESP_OK) return ret;
 
-        // Đọc trạng thái ban đầu của CLK
-        m_last_clk_state = gpio_get_level(PIN_ENCODER_CLK);
+        // Read initial state
+        m_last_state = (gpio_get_level(PIN_ENCODER_CLK) << 1) | gpio_get_level(PIN_ENCODER_DT);
 
-        // 3. Đăng ký ISR (Interrupt Service Routine) cho chân CLK
-        // Lưu ý: ISR service đã được cài đặt trong main.cpp, chỉ cần đăng ký handler tại đây.
-        ret = gpio_isr_handler_add(PIN_ENCODER_CLK, isr_wrapper, reinterpret_cast<void*>(this));
-        if (ret != ESP_OK) {
-            printf("E (xxx) ROTARY_ENCODER: Failed to install ISR!\n");
-            return ret;
-        }
+        // Register ISR
+        ret = gpio_isr_handler_add(PIN_ENCODER_CLK, isr_handler, this);
+        if (ret != ESP_OK) { printf("E ROTARY: ISR add failed\n"); return ret; }
 
-        printf("I (xxx) ROTARY_ENCODER: Initialized.\n");
+        printf("I ROTARY: GPIO ISR encoder ready (CLK=%d DT=%d)\n",
+               PIN_ENCODER_CLK, PIN_ENCODER_DT);
         return ESP_OK;
     }
 
@@ -61,62 +61,52 @@ public:
         if (step < 0) step = 0;
         if (step > ENCODER_MAX_STEPS) step = ENCODER_MAX_STEPS;
         m_current_step = step;
+        m_accumulator = 0;
     }
 
 private:
     on_change_callback m_callback;
-    int m_current_step;
-    bool m_last_clk_state;
+    volatile int m_current_step;
+    volatile int m_last_state;  // {CLK, DT} as 2-bit state
+    volatile int m_accumulator; // Raw edge delta accumulator (÷4 = detent)
 
-    /**
-     * @brief Hàm ISR tĩnh để làm cầu nối giữa C-style interrupt và C++ object.
-     */
-    static void IRAM_ATTR isr_wrapper(void* arg) {
-        auto* instance = static_cast<RotaryEncoder*>(arg);
-        instance->handle_interrupt_isr();
-    }
+    static void IRAM_ATTR isr_handler(void *arg) {
+        auto *self = static_cast<RotaryEncoder*>(arg);
+        // Read current state: bit1=CLK, bit0=DT
+        int clk = gpio_get_level(PIN_ENCODER_CLK);
+        int dt  = gpio_get_level(PIN_ENCODER_DT);
+        int state = (clk << 1) | dt;
 
-    /**
-     * @brief Logic xử lý ngắt cơ bản - CHỈ trong ISR context.
-     * 
-     * Lưu ý: Callback được gọi trong ISR context, chỉ nên thực hiện thao tác nhanh.
-     * Để tránh system hang, callback nên chỉ gửi vào queue (xQueueSendFromISR).
-     */
-    void IRAM_ATTR handle_interrupt_isr() {
-        bool current_clk_state = gpio_get_level(PIN_ENCODER_CLK);
-        
-        // Nếu trạng thái CLK thay đổi từ 0 -> 1 hoặc 1 -> 0
-        if (current_clk_state != m_last_clk_state) {
-            // Đọc chân DT để xác định hướng xoay
-            bool dt_state = gpio_get_level(PIN_ENCODER_DT);
+        // Quadrature state machine — only count valid transitions
+        // CW:  00→01→11→10→00  CCW: 00→10→11→01→00
+        static const int8_t TRANSITIONS[16] = {
+             0,  1, -1,  0,  // 00→00(0), 00→01(+1), 00→10(-1), 00→11(invalid)
+            -1,  0,  0,  1,  // 01→00(-1), 01→01(0),  01→10(inv), 01→11(+1)
+             1,  0,  0, -1,  // 10→00(+1), 10→01(inv), 10→10(0),  10→11(-1)
+             0, -1,  1,  0   // 11→00(inv), 11→01(-1), 11→10(+1), 11→11(0)
+        };
 
-            // Logic chuẩn cho Encoder: Nếu CLK thay đổi và DT khác trạng thái CLK, đó là một bước.
-            if (current_clk_state == true) { // Rising edge
-                if (dt_state != current_clk_state) {
-                    m_current_step++;
-                } else {
-                    m_current_step--;
+        int idx = (self->m_last_state << 2) | state;
+        if (idx >= 0 && idx < 16) {
+            int delta = TRANSITIONS[idx];
+            if (delta != 0) {
+                // 4X quadrature: 1 detent = 4 edge transitions
+                // Accumulate raw deltas, emit step change every ±4
+                self->m_accumulator += delta;
+                int step_change = self->m_accumulator / 4;
+                if (step_change != 0) {
+                    self->m_accumulator -= step_change * 4;
+                    int step = self->m_current_step + step_change;
+                    if (step < 0) step = 0;
+                    if (step > ENCODER_MAX_STEPS) step = ENCODER_MAX_STEPS;
+                    if (step != self->m_current_step) {
+                        self->m_current_step = step;
+                        if (self->m_callback) self->m_callback(step);
+                    }
                 }
-            } else { // Falling edge
-                if (dt_state == current_clk_state) {
-                    m_current_step++;
-                } else {
-                    m_current_step--;
-                }
-            }
-
-            // Giới hạn giá trị trong dải [0, ENCODER_MAX_STEPS]
-            if (m_current_step < 0) m_current_step = 0;
-            if (m_current_step > ENCODER_MAX_STEPS) m_current_step = ENCODER_MAX_STEPS;
-
-            m_last_clk_state = current_clk_state;
-
-            // Gọi callback để thông báo giá trị mới
-            // Lưu ý: Callback chạy trong ISR context, chỉ nên thực hiện thao tác nhanh
-            if (m_callback) {
-                m_callback(m_current_step);
             }
         }
+        self->m_last_state = state;
     }
 };
 

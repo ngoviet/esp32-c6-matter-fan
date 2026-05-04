@@ -8,9 +8,9 @@
 // PWM Output (LEDC)
 static constexpr gpio_num_t PIN_PWM_OUT = GPIO_NUM_1;
 
-// Rotary Encoder (ECC11)
-static constexpr gpio_num_t PIN_ENCODER_CLK = GPIO_NUM_2;
-static constexpr gpio_num_t PIN_ENCODER_DT   = GPIO_NUM_3;
+// Rotary Encoder (EC11) — corrected direction
+static constexpr gpio_num_t PIN_ENCODER_CLK = GPIO_NUM_3;
+static constexpr gpio_num_t PIN_ENCODER_DT   = GPIO_NUM_2;
 static constexpr gpio_num_t PIN_ENCODER_SW   = GPIO_NUM_4;
 
 // ========== FAN PARAMETERS ==========

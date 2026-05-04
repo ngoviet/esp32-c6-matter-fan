@@ -7,8 +7,8 @@ ESP32-C6                ECC11 Rotary Encoder
 ┌─────────────┐         ┌──────────────┐
 │             │         │              │
 │   GPIO1 ────┼─────────┼── PWM OUT ────► Fan (signal wire)
-│   GPIO2 ────┼─────────┼── CLK        │
-│   GPIO3 ────┼─────────┼── DT         │
+│   GPIO3 ────┼─────────┼── CLK        │
+│   GPIO2 ────┼─────────┼── DT         │
 │   GPIO4 ────┼─────────┼── SW (button)│
 │             │         └──────────────┘
 │   3.3V  ────┼────────── + (encoder power)
@@ -20,8 +20,8 @@ Tóm tắt đấu nối nhanh:
 
 ESP32-C6	Đấu vào
 GPIO1 →	MOSFET gate (qua R 330Ω) → quạt
-GPIO2 →	Encoder CLK
-GPIO3 →	Encoder DT
+GPIO3 →	Encoder CLK
+GPIO2 →	Encoder DT
 GPIO4 →	Encoder SW (nút)
 3.3V →	VCC encoder
 GND →	GND encoder + GND quạt
@@ -34,8 +34,8 @@ MOSFET IRLZ44N khuếch đại PWM 3.3V → 12V/24V. Nguồn quạt riêng.
 | ESP32-C6 Pin | Connect To | Notes |
 |-------------|-----------|-------|
 | **GPIO1** | Fan signal wire (PWM) | 100-400Hz, 50% duty cycle |
-| **GPIO2** | Encoder CLK | Clock pulse, `ANYEDGE` interrupt |
-| **GPIO3** | Encoder DT | Direction detection |
+| **GPIO3** | Encoder CLK | Clock pulse, `ANYEDGE` interrupt |
+| **GPIO2** | Encoder DT | Direction detection |
 | **GPIO4** | Encoder SW | Button press, `NEGEDGE` interrupt (active low) |
 | **3.3V** | Encoder VCC | Power for encoder module |
 | **GND** | Encoder GND + Fan GND | Common ground |

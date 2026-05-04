@@ -12,7 +12,7 @@
 #include <esp_matter_console.h>
 #include <esp_openthread_types.h>
 #include <platform/ESP32/OpenthreadLauncher.h>
-#include <esp_matter_ota.h>
+#include <math.h>
 
 using namespace esp_matter;
 using namespace esp_matter::cluster;
@@ -27,6 +27,16 @@ static constexpr uint32_t CLUSTER_ON_OFF        = 0x0006;
 static constexpr uint32_t ATTR_ON_OFF           = 0x0000;
 static constexpr uint32_t CLUSTER_LEVEL_CONTROL = 0x0008;
 static constexpr uint32_t ATTR_CURRENT_LEVEL    = 0x0000;
+
+// Inverse gamma correction: undo HA's default gamma (~2.5) on light brightness.
+// HA sends gamma-corrected level → we convert back to linear percentage.
+// level=192 (HA slider 50%) → pct=50%, level=127 → pct≈18%
+static uint8_t ungammify(uint8_t level) {
+    if (level <= 1) return 0;
+    float linear = powf((float)level / 254.0f, 2.5f);
+    int pct = (int)(linear * 100.0f + 0.5f);
+    return (uint8_t)(pct > 100 ? 100 : pct);
+}
 
 // ---------- Attribute Update Callback ----------
 
@@ -51,11 +61,11 @@ static esp_err_t app_attribute_update_cb(attribute::callback_type_t type,
             }
         }
     }
-    // Level Control → brightness 0-254 maps to fan speed 0-100%
+    // Level Control — undo HA gamma correction for linear CLK response
     else if (cluster_id == CLUSTER_LEVEL_CONTROL && attribute_id == ATTR_CURRENT_LEVEL) {
         uint8_t level = val->val.u8;
-        uint8_t pct = (level * 100 + 127) / 254;
-        ESP_LOGI(TAG, "Matter: Level=%d -> Speed=%d%%", level, pct);
+        uint8_t pct = ungammify(level);
+        ESP_LOGI(TAG, "Matter: Level=%d (gamma) -> Speed=%d%% (linear)", level, pct);
         if (s_fan_controller) {
             if (level == 0) {
                 s_fan_controller->turn_off();
@@ -133,11 +143,7 @@ esp_err_t app_matter_init(FanController* fan_controller)
     esp_err_t err = esp_matter::start(app_event_cb);
     if (err != ESP_OK) { ESP_LOGE(TAG, "Matter start failed: %d", err); return err; }
 
-    // 5. Init OTA requestor
-    esp_matter_ota_requestor_init();
-    ESP_LOGI(TAG, "OTA requestor initialized");
-
-    // 6. Console
+    // 5. Console
     esp_matter::console::diagnostics_register_commands();
     esp_matter::console::init();
 
