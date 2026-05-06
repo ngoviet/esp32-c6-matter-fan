@@ -1,16 +1,23 @@
 /**
  * @file app_matter.cpp
- * @brief Matter over Thread — Dimmable Light endpoint for fan CLK speed control
+ * @brief Matter over Thread — Dimmable Light endpoint for fan CLK speed control.
  *
  * Device appears as a dimmable light with 0-100% brightness slider.
  * Brightness % maps to CLK frequency 28-328Hz via: freq = 28 + (pct * 300) / 100
  * 50% fixed duty cycle on GPIO1.
+ *
+ * Note: Fan device type (0x002B) would be ideal but the generated data model
+ * adds 150+ include dirs that exceed Windows cmdline limit. Dimmable Light
+ * is functionally equivalent — brightness slider controls fan speed linearly
+ * after inverse gamma correction.
  */
 #include "app_matter.h"
 #include <esp_log.h>
 #include <esp_matter.h>
 #include <esp_matter_console.h>
+#include <esp_matter_core.h>
 #include <esp_openthread_types.h>
+#include <esp_timer.h>
 #include <platform/ESP32/OpenthreadLauncher.h>
 #include <math.h>
 
@@ -20,7 +27,9 @@ using namespace esp_matter::cluster;
 static const char *TAG = "APP_MATTER";
 static uint16_t s_endpoint_id = 0;
 static FanController* s_fan_controller = nullptr;
+static LedIndicator* s_led = nullptr;
 static app_matter_speed_callback_t s_speed_callback = nullptr;
+static esp_timer_handle_t s_reconnect_timer = nullptr;
 
 // Standard Matter cluster/attribute IDs
 static constexpr uint32_t CLUSTER_ON_OFF        = 0x0006;
@@ -28,14 +37,20 @@ static constexpr uint32_t ATTR_ON_OFF           = 0x0000;
 static constexpr uint32_t CLUSTER_LEVEL_CONTROL = 0x0008;
 static constexpr uint32_t ATTR_CURRENT_LEVEL    = 0x0000;
 
-// Inverse gamma correction: undo HA's default gamma (~2.5) on light brightness.
-// HA sends gamma-corrected level → we convert back to linear percentage.
-// level=192 (HA slider 50%) → pct=50%, level=127 → pct≈18%
-static uint8_t ungammify(uint8_t level) {
+// If Thread is disconnected for 5 minutes, reboot to attempt fresh re-attach
+static constexpr uint32_t RECONNECT_TIMEOUT_SEC = 300;
+
+static void reconnect_timer_cb(void*) {
+    ESP_LOGW(TAG, "Thread disconnected for %lu s — rebooting...", (unsigned long)RECONNECT_TIMEOUT_SEC);
+    esp_restart();
+}
+
+// Linear level-to-percent: HA sends raw 0-254 Level → map to 0-100%
+// No gamma correction — HA Matter Server sends linear values.
+static uint8_t level_to_pct(uint8_t level) {
     if (level <= 1) return 0;
-    float linear = powf((float)level / 254.0f, 2.5f);
-    int pct = (int)(linear * 100.0f + 0.5f);
-    return (uint8_t)(pct > 100 ? 100 : pct);
+    int pct = (static_cast<int>(level) * 100 + 127) / 254;
+    return static_cast<uint8_t>(pct > 100 ? 100 : pct);
 }
 
 // ---------- Attribute Update Callback ----------
@@ -64,8 +79,8 @@ static esp_err_t app_attribute_update_cb(attribute::callback_type_t type,
     // Level Control — undo HA gamma correction for linear CLK response
     else if (cluster_id == CLUSTER_LEVEL_CONTROL && attribute_id == ATTR_CURRENT_LEVEL) {
         uint8_t level = val->val.u8;
-        uint8_t pct = ungammify(level);
-        ESP_LOGI(TAG, "Matter: Level=%d (gamma) -> Speed=%d%% (linear)", level, pct);
+        uint8_t pct = level_to_pct(level);
+        ESP_LOGI(TAG, "Matter: Level=%d -> Speed=%d%%", level, pct);
         if (s_fan_controller) {
             if (level == 0) {
                 s_fan_controller->turn_off();
@@ -95,22 +110,39 @@ static void app_event_cb(const ChipDeviceEvent *event, intptr_t arg)
 {
     if (event->Type == chip::DeviceLayer::DeviceEventType::kCommissioningComplete) {
         ESP_LOGI(TAG, "*** Commissioning complete! ***");
+        if (s_reconnect_timer) esp_timer_stop(s_reconnect_timer);
+        if (s_led) s_led->set_pattern(LedIndicator::Pattern::ON);
+    }
+    else if (event->Type == chip::DeviceLayer::DeviceEventType::kThreadConnectivityChange) {
+        if (event->ThreadConnectivityChange.Result == chip::DeviceLayer::ConnectivityChange::kConnectivity_Established) {
+            ESP_LOGI(TAG, "Thread connection established");
+            if (s_reconnect_timer) esp_timer_stop(s_reconnect_timer);
+            if (s_led) s_led->set_pattern(LedIndicator::Pattern::ON);
+        } else if (event->ThreadConnectivityChange.Result == chip::DeviceLayer::ConnectivityChange::kConnectivity_Lost) {
+            ESP_LOGW(TAG, "Thread connection lost — reboot in %lu s", (unsigned long)RECONNECT_TIMEOUT_SEC);
+            if (s_reconnect_timer) {
+                esp_timer_start_once(s_reconnect_timer, RECONNECT_TIMEOUT_SEC * 1000000);
+            }
+            if (s_led) s_led->set_pattern(LedIndicator::Pattern::SLOW_BLINK);
+        }
     }
 }
 
 // ---------- Init ----------
 
-esp_err_t app_matter_init(FanController* fan_controller)
+esp_err_t app_matter_init(FanController* fan_controller, LedIndicator* led)
 {
     s_fan_controller = fan_controller;
+    s_led = led;
     ESP_LOGI(TAG, "Initializing Matter Dimmable Light (Fan CLK driver)...");
+
+    if (s_led) s_led->set_pattern(LedIndicator::Pattern::FAST_BLINK);
 
     // 1. Create Matter node
     node::config_t node_config;
     node_t *node = node::create(&node_config, app_attribute_update_cb, app_identification_cb);
     if (!node) { ESP_LOGE(TAG, "Node create failed"); return ESP_FAIL; }
 
-    // Set device name (appears as NodeLabel in HA)
     esp_matter_attr_val_t name_val = esp_matter_invalid(NULL);
     name_val.type = ESP_MATTER_VAL_TYPE_CHAR_STRING;
     name_val.val.a.b = (uint8_t*)"Fan speed control";
@@ -147,6 +179,12 @@ esp_err_t app_matter_init(FanController* fan_controller)
     esp_matter::console::diagnostics_register_commands();
     esp_matter::console::init();
 
+    // 6. Reconnect timer
+    const esp_timer_create_args_t timer_args = {
+        .callback = reconnect_timer_cb, .arg = nullptr, .name = "reconnect"
+    };
+    esp_timer_create(&timer_args, &s_reconnect_timer);
+
     ESP_LOGI(TAG, "Matter Dimmable Light ready — Endpoint %u", s_endpoint_id);
     return ESP_OK;
 }
@@ -182,4 +220,12 @@ void app_matter_register_speed_callback(app_matter_speed_callback_t callback)
 {
     s_speed_callback = callback;
     ESP_LOGI(TAG, "Speed callback registered");
+}
+
+void app_matter_factory_reset()
+{
+    ESP_LOGW(TAG, "=== FACTORY RESET ===");
+    if (s_led) s_led->set_pattern(LedIndicator::Pattern::RAPID_BLINK);
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    esp_matter::factory_reset();
 }

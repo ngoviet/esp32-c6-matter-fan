@@ -24,57 +24,27 @@ idf.py -p COM4 flash
 
 ## Full Build Steps (after fullclean)
 
-### 1. Configure sdkconfig
-
-```powershell
-Remove-Item sdkconfig -Force -ErrorAction SilentlyContinue
-Copy-Item "D:\Espressif\frameworks\esp-matter\examples\light\sdkconfig.defaults.c6_thread" sdkconfig.defaults -Force
-Add-Content sdkconfig.defaults "`nCONFIG_MBEDTLS_HKDF_C=y`n"
-```
-
-### 2. CMake Configure
+### 1. Configure & Build
 
 ```powershell
 idf.py set-target esp32c6
-```
-
-### 3. Manual Chip Library Build
-
-```powershell
-$chipBuild = "build/esp-idf/chip"
-$gnPath = "gn/out/gn.exe"
-$gnRoot = "D:/Espressif/frameworks/esp-matter/connectedhomeip/connectedhomeip/config/esp32"
-
-# GN gen
-& $gnPath "--root=$gnRoot" "gen" $chipBuild
-
-# Patch build.ninja to disable GN regeneration loop
-$bn = "$chipBuild/build.ninja"
-$c = Get-Content $bn -Raw
-# (remove rule gn, build.ninja.stamp, and generator=1 lines)
-Set-Content $bn $c.Replace($old, $new) -NoNewline
-
-# Build chip library
-$env:PATH = "D:/Espressif/tools/ninja/1.11.1;D:/Espressif/tools/idf-exe;D:/Espressif;" + $env:PATH
-. "D:/Espressif/frameworks/esp-idf-v5.3.1/export.ps1" 2>&1 | Out-Null
-Set-Location $chipBuild
-ninja esp32
-
-# Create CMake stamps
-$sd = "$chipBuild/chip_gn-prefix/src/chip_gn-stamp"; md -Force $sd | Out-Null
-$f = (Get-Date).AddDays(1)
-@("chip_gn-configure","chip_gn-build","chip_gn-install","chip_gn-download","chip_gn-update","chip_gn-patch","chip_gn-mkdir") | % { $p="$sd\$_"; if(!(Test-Path $p)){$null>$p};(Get-Item $p).LastWriteTime=$f }
-```
-
-### 4. Build Firmware
-
-```powershell
-Set-Location "D:\esp32_smart_fan\esp32_c6_matter_fan"
 idf.py build
 idf.py -p COM4 flash
 ```
 
-## 7 Critical Patches
+The chip library is now built automatically via CMake ExternalProject (patch #3).  
+The `fix_and_build_chip.py` script handles GN gen + build.ninja fix automatically.
+
+### 2. Create directory junction (short path, avoids Windows cmdline limit)
+
+```powershell
+cmd /c "mklink /J C:\em D:\Espressif\frameworks\esp-matter"
+```
+
+This is needed because GN generates compile commands with long include paths
+that can exceed the Windows 32K command-line limit.
+
+## 9 Critical Patches
 
 These must be re-applied after any ESP-Matter or CHIP SDK update:
 
@@ -100,17 +70,24 @@ compile_flags = [f for f in compile_flags
 compile_flags = [f'"{f}"'.replace(replace, replace_with) for f in compile_flags]
 ```
 
-### 3. chip CMakeLists.txt — No-op external project
-**File:** `esp-matter/connectedhomeip/connectedhomeip/config/esp32/components/chip/CMakeLists.txt` (lines 424-429)
+### 3. chip CMakeLists.txt — Auto GN gen + ninja build via ExternalProject
+**File:** `esp-matter/connectedhomeip/connectedhomeip/config/esp32/components/chip/CMakeLists.txt` (lines 420-430)
 
 ```cmake
-CONFIGURE_COMMAND       ""
-BUILD_COMMAND           ""
-INSTALL_COMMAND         ""
-BUILD_BYPRODUCTS        ${chip_libraries}
-DEPENDS                 args_gn
-BUILD_ALWAYS            0
+externalproject_add(
+    chip_gn
+    SOURCE_DIR              ${CHIP_ROOT}
+    BINARY_DIR              ${CMAKE_CURRENT_BINARY_DIR}
+    CONFIGURE_COMMAND       ${Python3_EXECUTABLE} D:/esp32_smart_fan/esp32_c6_matter_fan/fix_and_build_chip.py D:/esp32_smart_fan/esp32_c6_matter_fan ${CHIP_ROOT} ${CMAKE_CURRENT_BINARY_DIR}
+    BUILD_COMMAND           ${CMAKE_COMMAND} -E chdir ${CMAKE_CURRENT_BINARY_DIR} ninja esp32
+    INSTALL_COMMAND         ""
+    BUILD_BYPRODUCTS        ${chip_libraries}
+    DEPENDS                 args_gn
+    BUILD_ALWAYS            0
+)
 ```
+
+**Note:** Update the hardcoded project path if your project location changes.
 
 ### 4. sdkconfig.defaults — Add HKDF
 ```
@@ -132,3 +109,41 @@ Content: `# Minimal pigweed_environment.gni stub for ESP32 build`
 
 ### 7. pigweed_environment.gni stub at CHIP_ROOT
 Create empty file at `connectedhomeip/connectedhomeip/build_overrides/pigweed_environment.gni`
+
+### 8. ExchangeContext.cpp — Prevent subscription loss on network down
+**File:** `esp-matter/connectedhomeip/connectedhomeip/src/messaging/ExchangeContext.cpp`
+
+**Add include** (after line 39):
+```cpp
+#include <messaging/ErrorCategory.h>
+```
+
+**Patch error handling** (around line 188):
+```cpp
+// BEFORE:
+if (session->IsSecureSession() && session->AsSecureSession()->IsCASESession())
+{
+    session->AsSecureSession()->MarkAsDefunct();
+}
+
+// AFTER:
+if (session->IsSecureSession() &&
+    session->AsSecureSession()->IsCASESession() &&
+    !IsSendErrorNonCritical(err))
+{
+    session->AsSecureSession()->MarkAsDefunct();
+}
+```
+
+**Why:** When Thread disconnects (SLZB-06M power cycle), UDP sends fail with ERR_RTE. Without this patch, ANY send error marks the CASE session as defunct, which terminates all subscriptions. HA then can't receive updates even after Thread reconnects.
+
+### 9. commodity-tariff-server.cpp — Fix format specifiers for RISC-V
+**File:** `esp-matter/connectedhomeip/connectedhomeip/src/app/clusters/commodity-tariff-server/commodity-tariff-server.cpp`
+
+```cpp
+// Lines 660, 668, 700, 715: Cast uint32_t to unsigned int for %u format
+ChipLogDetail(AppServer, "... %u", (unsigned int)value.date);
+ChipLogDetail(AppServer, "... %u", (unsigned int)value.dayEntryID);
+```
+
+**Why:** On RISC-V 32-bit, `uint32_t` is `long unsigned int` but `%u` expects `unsigned int`. GCC 13.2 with `-Werror=format` fails.

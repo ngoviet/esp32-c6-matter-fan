@@ -1,6 +1,12 @@
 /**
  * @file app_matter.h
- * @brief Matter over Thread interface for ESP32-C6 Smart Fan (IDF v5.3.1 API)
+ * @brief Matter over Thread interface — Fan device type with Fan Control cluster.
+ *
+ * Device appears as a Fan (0x002B) in Home Assistant with:
+ *   - FanMode (Off=0 / On=5) for power control
+ *   - PercentSetting 0-100% for speed (linear, no gamma correction)
+ *
+ * CLK frequency: 28-328Hz, 50% fixed duty on GPIO1.
  */
 #ifndef APP_MATTER_H
 #define APP_MATTER_H
@@ -8,40 +14,26 @@
 #include <stdint.h>
 #include <esp_err.h>
 #include "fan_controller.h"
+#include "led_indicator.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/**
- * @brief Initialize Matter over Thread stack (IDF v5.3.1 compatible)
- */
-esp_err_t app_matter_init(FanController* fan_controller);
+esp_err_t app_matter_init(FanController* fan_controller, LedIndicator* led = nullptr);
 
-/**
- * @brief Report On/Off state to Matter controller
- */
 void app_matter_report_onoff(bool is_on);
-
-/**
- * @brief Report fan speed to Matter controller
- */
 void app_matter_report_speed(uint8_t percentage);
-
-/**
- * @brief Get current fan endpoint ID
- */
 uint16_t app_matter_get_fan_endpoint_id();
 
-/**
- * @brief Callback type for Matter-initiated speed changes
- */
 typedef void (*app_matter_speed_callback_t)(uint8_t percent);
+void app_matter_register_speed_callback(app_matter_speed_callback_t callback);
 
 /**
- * @brief Register a callback for Matter-initiated speed changes
+ * @brief Factory reset Matter fabric + Thread credentials.
+ * Hold button for 10 seconds to trigger. Device reboots into commissioning mode.
  */
-void app_matter_register_speed_callback(app_matter_speed_callback_t callback);
+void app_matter_factory_reset();
 
 #ifdef __cplusplus
 }
