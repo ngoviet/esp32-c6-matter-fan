@@ -11,3 +11,10 @@ dependencies.lock
 gn/
 build_output.log
 *.log
+
+# Local tooling and build leftovers
+.claude/
+.claudeignore
+.gclient*
+flash_all_args.txt
+*.bak

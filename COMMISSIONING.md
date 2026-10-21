@@ -28,8 +28,10 @@
 - Thread network: `ha-thread-9a87`, ULA: `fd63:1325:6ef9::/48`
 
 ### Thread Dataset
+The active dataset contains the Thread network key — never commit it.
+Read it from the border router when needed:
 ```
-0e080000000000010000000300000f4a0300001435060004001fffe002089971e7e7b46f8daa0708fd858aab07fb1693051082bd2483f5db9526238b2a7ec3b7fc4c030e68612d7468726561642d3961383701029a8704104155fe8a5113e281b9fd3d6e91b6ddb60c0402a0f7f8
+ot-ctl dataset active -x
 ```
 
 ## HA Add-on Configuration
