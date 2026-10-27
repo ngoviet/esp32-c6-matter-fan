@@ -1,10 +1,17 @@
 # ESP32-C6 Matter Fan
 
-> **Status: experimental.** Works on my own hardware; build setup still needs manual patches to ESP-Matter.
+<!-- readme-axi type=esp32 -->
+
+**English** · [Tiếng Việt](README.vi.md)
 
 Smart fan controller on **ESP32-C6** using **Matter over Thread** (ESP-IDF + ESP-Matter, not ESPHome).
 The fan shows up in Home Assistant as a **Dimmable Light**: the 0–100 % slider maps to a 28–328 Hz CLK signal
 that sets the speed of a frequency-controlled BLDC fan. It can also be controlled locally with a rotary encoder.
+
+> 🇻🇳 Built and maintained by one person in Việt Nam — if it saves you time, please
+> [support the project](#support-the-project).
+
+> **Status: experimental.** Works on my own hardware; build setup still needs manual patches to ESP-Matter.
 
 ## Features
 
@@ -26,7 +33,9 @@ that sets the speed of a frequency-controlled BLDC fan. It can also be controlle
 
 Full wiring and parts list: [WIRING.md](WIRING.md).
 
-## Build & flash
+## Quick start
+
+### Build & flash
 
 Tested with **ESP-IDF v5.3.1** and **ESP-Matter**, target `esp32c6`.
 
@@ -39,7 +48,9 @@ idf.py -p COM4 flash
 The current ESP-Matter release needs several patches before it builds on Windows — see [BUILD_GUIDE.md](BUILD_GUIDE.md).
 Alternatives: [Docker](DOCKER_README.md) or [native Linux setup](NATIVE_SETUP_GUIDE.md).
 
-## Pair with Home Assistant
+## Home Assistant
+
+### Pair with Home Assistant
 
 1. Make sure Home Assistant has a Thread border router and the Matter Server add-on.
 2. In the HA Companion app: **Settings → Devices & services → Add Matter device**.
@@ -72,9 +83,10 @@ sdkconfig.defaults*  build configuration (Thread end device / Thread leader)
   <img src="https://raw.githubusercontent.com/ngoviet/.github/main/assets/support/vietqr-card.svg" width="300" alt="VietQR — MB Bank — NGO DUC VIET — 911051212">
 </p>
 
-<p align="center"><sub>🇻🇳 VietQR: quét bằng app ngân hàng bất kỳ, nội dung <code>Ung ho esp32-c6-matter-fan</code>. Cảm ơn bạn! · Thank you for keeping this project alive.</sub></p>
+<p align="center"><sub>🇻🇳 VietQR: scan with any Vietnamese banking app, transfer note <code>Ung ho esp32-c6-matter-fan</code>. Thank you for keeping this project alive!</sub></p>
+<p align="center"><sub>Crypto (BEP20 network): <code>0x57f07d44fb581cddc028a0c67d63a8cc05aa6caa</code> · USDT · USDC · BNB · ETH · BTC</sub></p>
 <!-- support:end -->
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) © Ngô Đức Việt.
